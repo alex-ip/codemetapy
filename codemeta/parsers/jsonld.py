@@ -80,6 +80,27 @@ def find_main_id(data: dict) -> Union[str, None]:
     """Find the main URI in the JSON-LD resource, if there is only one, return None otherwise"""
     if "@graph" in data and len(data["@graph"]) == 1:
         root = data["@graph"][0]
+    elif "@graph" in data and len(data["@graph"]) > 1: # Potential RO-crate with flattened @graph
+        root_dataset_types = []
+        try:
+            # Find the root dataset from the entrypoint
+            entrypoint = [obj for obj in data["@graph"] if obj.get("@id", "") == "ro-crate-metadata.json"][0]
+            root_dataset_id = entrypoint["about"]["@id"]
+            root = [obj for obj in data["@graph"] if obj.get("@id", "") == root_dataset_id][0]
+
+            # validate that root type includes Dataset
+            root_dataset_types = root.get("@type", [])
+            if type(root_dataset_types) == str:
+                root_dataset_types = [root_dataset_types,]
+        except IndexError:  # Can't find root dataset, so root_dataset_types == []
+            pass
+
+        if 'Dataset' not in root_dataset_types:
+            raise Exception(
+                'JSON-LD file is not a valid RO-crate containing a Dataset entity from entrypoint with "@id": "ro-crate-metadata.json"'
+                )
+
+        return root_dataset_id
     else:
         root = data
 
@@ -102,6 +123,12 @@ def inject_uri(data: dict, res: URIRef):
         data["@id"] = str(res)
         if "id" in data:
             del data["id"]
+        print(f"    Injected (possibly temporary) URI {res}", file=sys.stderr)
+    elif "@graph" in data and len(data["@graph"]) > 1: # Potential RO-crate with flattened @graph
+        root_dataset_id = find_main_id(data)  #TODO: Don't call this function a second time (add parameter?)
+        root_dataset = [obj for obj in data["@graph"] if obj.get("@id", "") == root_dataset_id][0]
+
+        root_dataset["@id"] = str(res)  # This is required to set the right root entity for CodeMeta
         print(f"    Injected (possibly temporary) URI {res}", file=sys.stderr)
     else:
         raise Exception(
@@ -226,6 +253,15 @@ def parse_jsonld_data(
     if isinstance(res, URIRef) and founduri != str(res):
         # we're handling a single resource. Inject our own URI prior to parsing with rdflib
         inject_uri(data, res)
+
+    # postprocess json
+    # Convert RO-crate creator(s) to CodeMeta author list if required
+    root_dataset = [obj for obj in data["@graph"] if obj.get("@id", "") == str(res)][0]
+    creators = root_dataset.get('creator', [])
+    if type(creators) == str:
+        creators = [creators,]
+    if creators and not root_dataset.get('author'):
+        root_dataset["author"] = creators
 
     # reserialize after edits
     reserialised_data: str = json.dumps(data, indent=4)
