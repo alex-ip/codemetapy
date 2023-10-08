@@ -51,6 +51,7 @@ import codemeta.parsers.authors
 import codemeta.validation
 from codemeta.serializers.jsonld import serialize_to_jsonld
 from codemeta.serializers.turtle import serialize_to_turtle
+from codemeta.serializers.rocrate import serialize_to_rocrate
 
 
 # class PostDevelopCommand(setuptools.command.develop.develop):
@@ -160,7 +161,7 @@ def main():
         "--outputtype",
         dest="output",
         type=str,
-        help="Output type: json (default), turtle",
+        help="Output type: json (default), turtle, ro-crate",
         action="store",
         required=False,
         default="json",
@@ -417,6 +418,15 @@ def serialize(
         raise Exception(
             "Output type html is no longer handled by codemetapy but has moved to codemeta2html: https://github.com/proycon/codemeta2html"
         )
+    elif args.output == "ro-crate":
+        if sparql_query:
+            res = [x[0] for x in query(g, sparql_query)]
+        doc = serialize_to_rocrate(g, res, args)
+        if args.outputfile and args.outputfile != "-":
+            with open(args.outputfile, "w", encoding="utf-8") as fp:
+                fp.write(json.dumps(doc, indent=4, ensure_ascii=False, sort_keys=True))
+        else:
+            return json.dumps(doc, indent=4, ensure_ascii=False, sort_keys=True)
     else:
         raise Exception("No such output type: ", args.output)
 
